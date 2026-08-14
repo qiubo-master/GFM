@@ -1,0 +1,27 @@
+[project]
+name = "cici-ai-foundation"
+version = "0.1.0"
+description = "Shared text and multimodal AI foundation services"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "fastapi>=0.116,<1",
+  "uvicorn[standard]>=0.35,<1",
+  "httpx>=0.28,<1",
+  "pydantic>=2.11,<3",
+  "pydantic-settings>=2.10,<3",
+  "pillow>=11,<13",
+  "redis>=6,<7",
+]
+
+[project.optional-dependencies]
+vision = ["ultralytics>=8.3,<9"]
+dev = ["pytest>=8.4,<9", "pytest-asyncio>=1.1,<2"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.setuptools.packages.find]
+include = ["foundation*"]
+exclude = ["ops*", "tests*"]
