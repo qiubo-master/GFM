@@ -6,7 +6,6 @@ RELEASE_SHA="${2:-}"
 ROOT=/root/autodl-tmp/GFM
 RELEASES="$ROOT/releases"
 SHARED="$ROOT/shared"
-REPOSITORY="$SHARED/repository"
 STATUS="$SHARED/deploy-status.json"
 CURRENT="$ROOT/current"
 
@@ -24,15 +23,14 @@ if [[ "$ACTION" == "rollback" ]]; then
   [[ -n "$target" ]]
   RELEASE_SHA="$(basename "$target")"
 else
-  if [[ ! -d "$REPOSITORY/.git" ]]; then
-    git clone https://github.com/qiubo-master/GFM.git "$REPOSITORY"
-  fi
-  git -C "$REPOSITORY" fetch --prune origin main
-  git -C "$REPOSITORY" cat-file -e "$RELEASE_SHA^{commit}"
+  [[ -f /etc/network_turbo ]] && source /etc/network_turbo
   target="$RELEASES/$RELEASE_SHA"
   rm -rf "$target"
   mkdir -p "$target"
-  git -C "$REPOSITORY" archive "$RELEASE_SHA" | tar -x -C "$target"
+  archive="/tmp/gfm-$RELEASE_SHA.tar.gz"
+  curl --fail --location --retry 10 --retry-all-errors --connect-timeout 20 \
+    "https://codeload.github.com/qiubo-master/GFM/tar.gz/$RELEASE_SHA" -o "$archive"
+  tar -xzf "$archive" --strip-components=1 -C "$target"
 fi
 
 [[ -s "$SHARED/.env" ]]
