@@ -17,7 +17,6 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - uses: actions/checkout@v4
       - name: Validate and test
@@ -25,39 +24,27 @@ jobs:
           test -f Dockerfile
           test -f compose.yml
           python -m compileall -q foundation
-      - name: Configure SSH
+      - name: Request deployment
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          SSH_HOST_KEY: ${{ secrets.DEPLOY_HOST_KEY }}
-        run: |
-          test -n "$SSH_PRIVATE_KEY" && test -n "$SSH_HOST_KEY"
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/known_hosts
-      - name: Upload release
-        if: inputs.action == 'deploy'
-        env:
-          HOST: ${{ secrets.DEPLOY_HOST }}
-          PORT: ${{ secrets.DEPLOY_PORT }}
-          USER: ${{ secrets.DEPLOY_USER }}
-        run: |
-          tar --exclude=.git --exclude=.venv --exclude=.venv-gpu --exclude=data -czf /tmp/gfm-release.tgz .
-          scp -i ~/.ssh/deploy_key -P "$PORT" /tmp/gfm-release.tgz "$USER@$HOST:/tmp/gfm-${GITHUB_SHA}.tgz"
-      - name: Deploy or rollback on AutoDL
-        env:
-          HOST: ${{ secrets.DEPLOY_HOST }}
-          PORT: ${{ secrets.DEPLOY_PORT }}
-          USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
           ACTION: ${{ inputs.action }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$PORT" "$USER@$HOST" \
-            "ACTION='$ACTION' RELEASE_SHA='$GITHUB_SHA' bash -s" < ops/deploy-cloud.sh
-      - name: Verify service health
+          curl --fail --silent --show-error --max-time 30 \
+            -H "X-Deploy-Token: $DEPLOY_TOKEN" -H "Content-Type: application/json" \
+            -d "{\"action\":\"$ACTION\",\"sha\":\"$GITHUB_SHA\"}" \
+            "$DEPLOY_URL/foundation/internal/deploy"
+      - name: Wait for activation and verify health
         env:
-          HOST: ${{ secrets.DEPLOY_HOST }}
-          PORT: ${{ secrets.DEPLOY_PORT }}
-          USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$PORT" "$USER@$HOST" \
-            "curl --fail --silent --show-error --max-time 30 http://127.0.0.1:6008/foundation/v1/health"
+          for attempt in $(seq 1 60); do
+            payload=$(curl --silent --show-error --max-time 15 -H "X-Deploy-Token: $DEPLOY_TOKEN" "$DEPLOY_URL/foundation/internal/deploy/status" || true)
+            echo "Attempt $attempt: $payload"
+            echo "$payload" | grep -q '"status":"failed"' && exit 1
+            echo "$payload" | grep -q '"status":"success"' && break
+            sleep 5
+          done
+          echo "$payload" | grep -q '"status":"success"'
+          curl --fail --silent --show-error --max-time 30 "$DEPLOY_URL/foundation/v1/health"

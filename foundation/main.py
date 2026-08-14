@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import time
 import uuid
+import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from .auth import require_app
@@ -35,6 +37,38 @@ def envelope(data: Any, request_id: str, started: float, models: dict[str, str] 
 @app.get("/", include_in_schema=False)
 async def console():
     return FileResponse(WEB_ROOT / "index.html")
+
+
+def require_deploy_token(x_deploy_token: str | None = Header(default=None)) -> None:
+    if not settings.forgeops_deploy_token or x_deploy_token != settings.forgeops_deploy_token:
+        raise HTTPException(401, "Invalid deployment credentials")
+
+
+@app.post("/foundation/internal/deploy", status_code=202, include_in_schema=False)
+async def deploy_release(request: Request, background: BackgroundTasks,
+                         _: None = Depends(require_deploy_token)):
+    body = await request.json()
+    sha = str(body.get("sha", ""))
+    action = str(body.get("action", "deploy"))
+    if action not in {"deploy", "rollback"} or (action == "deploy" and not __import__("re").fullmatch(r"[0-9a-f]{40}", sha)):
+        raise HTTPException(400, "Invalid deployment request")
+    script = settings.forgeops_deploy_script
+    if not script.is_file():
+        raise HTTPException(503, "Deployment bootstrap is unavailable")
+    def launch() -> None:
+        subprocess.Popen(["bash", str(script), action, sha], start_new_session=True,
+                         stdout=open("/root/autodl-tmp/logs/gfm-deploy.log", "a", encoding="utf-8"),
+                         stderr=subprocess.STDOUT)
+    background.add_task(launch)
+    return {"status": "accepted", "action": action, "sha": sha}
+
+
+@app.get("/foundation/internal/deploy/status", include_in_schema=False)
+async def deploy_status(_: None = Depends(require_deploy_token)):
+    try:
+        return json.loads(settings.forgeops_deploy_status.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"status": "idle"}
 
 
 @app.get("/foundation/v1/health")

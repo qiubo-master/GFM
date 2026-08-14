@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     task_ttl_seconds: int = 86400
     database_url: str | None = None
     object_storage_endpoint: str | None = None
+    forgeops_deploy_token: str = ""
+    forgeops_deploy_script: Path = Path("/root/autodl-tmp/GFM/bootstrap/deploy-pull.sh")
+    forgeops_deploy_status: Path = Path("/root/autodl-tmp/GFM/shared/deploy-status.json")
 
     @property
     def vision_base_url(self) -> str:
